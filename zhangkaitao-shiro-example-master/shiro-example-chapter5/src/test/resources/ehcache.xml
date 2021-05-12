@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ehcache name="es">
+
+    <diskStore path="java.io.tmpdir"/>
+
+
+
+    <!-- 登录记录缓存 锁定10分钟 -->
+    <cache name="passwordRetryCache"
+           maxEntriesLocalHeap="2000"
+           eternal="false"
+           timeToIdleSeconds="3600"
+           timeToLiveSeconds="0"
+           overflowToDisk="false"
+           statistics="true">
+    </cache>
+
+    <!--<cache name="passwordRetryCache"-->
+           <!--maxEntriesLocalHeap="2000" 内存中最大缓存对象数量-->
+           <!--eternal="false" 是否永久缓存-->
+           <!--timeToIdleSeconds="3600" 缓存清除时间 默认0 即永不过期-->
+           <!--timeToLiveSeconds="0" 对象在失效前允许存活时间 默认0 即永不过期-->
+           <!--overflowToDisk="false"-->
+           <!--statistics="true">-->
+    <!--</cache>-->
+
+</ehcache>
