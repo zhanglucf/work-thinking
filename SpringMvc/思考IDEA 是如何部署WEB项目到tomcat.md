@@ -14,4 +14,4 @@ IDEA 会从tomcat的安装目录中复制一些必要的文件到指定目录，
 <Context path="/springmvc_1" docBase="D:\springmvc-examples\springmvc-1\target\springmvc-1-1.0-SNAPSHOT" />
 ```
 
-最后tomcat启动用到的配置文件所在目录是：C:\Users\zzh\.IntelliJIdea2018.3\system\tomcat\Unnamed_springmvc-examples\conf
+最后tomcat启动用到的配置文件所在目录是：`C:\Users\zzh\.IntelliJIdea2018.3\system\tomcat\Unnamed_springmvc-examples\conf`
