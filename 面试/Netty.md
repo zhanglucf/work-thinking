@@ -333,3 +333,445 @@ public void modifyNonHeap() throws IOException {
 }
 -- 123456789 -> a23C56789
 ```
+
+
+
+## Selector
+
+> ![image-20210725211059362](../images/image-20210725211059362.png)
+>
+> ```java
+> public abstract class Selector implements Closeable { 
+>     //得到一个选择器对象
+> 	public static Selector open();
+>     //监控所有注册的通道，当其中有 IO 操作可以进行时，将对应的 SelectionKey 加入到内部集合中并返回，参数用来设置超时时间
+> 	public int select(long timeout);
+>     //从内部集合中得到所有的 SelectionKey
+> 	public Set<SelectionKey> selectedKeys();	
+> }
+> ```
+>`NIO`中的` ServerSocketChannel`功能类似`ServerSocket`，`SocketChannel`功能类似`Socket`
+
+
+
+### NIO 非阻塞 网络编程原理分析
+
+> ![image-20210725212403709](../images/image-20210725212403709.png)
+>
+> :one:当客户端连接时，会通过`ServerSocketChannel `得到`SocketChannel`
+>
+> :two:`​Selector `进行监听 select 方法, 返回有事件发生的通道的个数.
+>
+> :three:将`SocketChannel`注册到`Selector`上, register(Selector sel, **int** ops), 一个selector上可以注册多个SocketChannel
+>
+> :four:注册后返回一个` SelectionKey`, 会和该`Selector `关联(集合)
+>
+> :five:进一步得到各个` SelectionKey `(有事件发生)
+>
+> :six:在通过` SelectionKey ` 反向获取 `SocketChannel `, 方法 channel()
+>
+> :seven:通过channel  , 完成业务处理
+
+------
+
+
+
+### 手写NIOSocketServer和NIOClient
+
+> **NIOSocketServer**
+>
+> > ```java
+> > package com.netty.chapter6;
+> > 
+> > import java.io.IOException;
+> > import java.net.InetSocketAddress;
+> > import java.nio.ByteBuffer;
+> > import java.nio.channels.*;
+> > import java.util.Iterator;
+> > import java.util.Set;
+> > 
+> > public class NIOSocketServer {
+> > 
+> >     public static void main(String[] args) throws IOException {
+> >         //创建一个ServerSocketChannel
+> >         final ServerSocketChannel serverSocketChannel = ServerSocketChannel.open();
+> >         //创建一个Selector
+> >         final Selector selector = Selector.open();
+> >         //监听端口6666
+> >         serverSocketChannel.bind(new InetSocketAddress(6666));
+> >         //设置为非阻塞
+> >         serverSocketChannel.configureBlocking(false);
+> >         serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
+> >         while (true) {
+> >             if (selector.select(1000) == 0) {
+> > //                System.out.println("服务器等待1秒，没有连接");
+> >                 continue;
+> >             }
+> >             //获取有事件发生的selectionKey集合
+> >             final Set<SelectionKey> selectionKeys = selector.selectedKeys();
+> >             final Iterator<SelectionKey> iterator = selectionKeys.iterator();
+> >             if (iterator.hasNext()) {
+> >                 final SelectionKey selectionKey = iterator.next();
+> >                 //根据事件类型，分别做不同处理
+> >                 if (selectionKey.isAcceptable()) {
+> >                     //selectionKeys反向获取channel
+> >                     //方法执行到这里，说明确实有连接事件发生了，accept()方法不会阻塞在这里
+> >                     final SocketChannel socketChannel = serverSocketChannel.accept();
+> >                     //设置channel为非阻塞
+> >                     socketChannel.configureBlocking(false);
+> >                     //将客户端的channel注册到Selector,并绑定一个Buffer
+> >                     socketChannel.register(selector, SelectionKey.OP_READ, ByteBuffer.allocate(1024));
+> >                 }
+> >                 if (selectionKey.isConnectable()) {
+> > 
+> >                 }
+> >                 //发生了读的事件
+> >                 if (selectionKey.isReadable()) {
+> >                     //selectionKeys反向获取channel
+> >                     final SocketChannel socketChannel = (SocketChannel) selectionKey.channel();
+> >                     final ByteBuffer buffer = (ByteBuffer) selectionKey.attachment();
+> >                     System.out.println("attachment buffer:"+buffer.hashCode());
+> >                     socketChannel.read(buffer);
+> >                     System.out.println("from 客户端 " + new String(buffer.array(),0,buffer.position()));
+> >                     //这里需要注意 和当前selectorKey 绑定的 buffer 每次用完需要 clear 否则下次用的时候里面有上次的数据
+> >                     buffer.clear();
+> >                 }
+> >                 //手动从集合中移除当前selectorKey
+> >                 iterator.remove();
+> >             }
+> >         }
+> >     }
+> > }
+> > 
+> > ```
+>
+> **NIOClient**
+>
+> > ```java
+> > package com.netty.chapter6;
+> > 
+> > import java.io.IOException;
+> > import java.net.InetSocketAddress;
+> > import java.nio.ByteBuffer;
+> > import java.nio.channels.SocketChannel;
+> > import java.util.Scanner;
+> > 
+> > public class NIOClientSocket {
+> > 
+> >     public static void main(String[] args) throws IOException {
+> >         final SocketChannel socketChannel = SocketChannel.open();
+> >         socketChannel.configureBlocking(false);
+> >         final InetSocketAddress inetSocketAddress = new InetSocketAddress("127.0.0.1", 6666);
+> >         //是非阻塞的
+> >         if (!socketChannel.connect(inetSocketAddress)) {
+> >             while (!socketChannel.finishConnect()) {
+> >                 System.out.println("如果客户端没有连接上服务端，客户端也不会阻塞connect这里，可以去做其他工作");
+> >             }
+> >         }
+> >         //连接到服务端了
+> >         final Scanner scanner = new Scanner(System.in);
+> >         while (true) {
+> >             System.out.println("请输入你要发送的信息");
+> >             String msg = scanner.next();
+> >             final ByteBuffer buffer = ByteBuffer.wrap(msg.getBytes());
+> >             System.out.println("客户端buffer:" + buffer.hashCode());
+> >             //将buffer数据写入buffer
+> >             socketChannel.write(buffer);
+> >         }
+> >     }
+> > }
+> > 
+> > ```
+
+------
+
+
+
+### SelectionKey解读
+
+> **SelectionKey，表示 Selector 和网络通道的注册关系**
+>
+> 共四种:
+>
+> - int OP_ACCEPT：有新的网络连接可以 accept，值为 16
+>
+> - int OP_CONNECT：代表连接已经建立，值为 8
+>
+> - int OP_READ：代表读操作，值为 1 
+>
+> - int OP_WRITE：代表写操作，值为 4
+
+
+
+### 群聊系统
+
+> Server端
+>
+> > ```java
+> > import java.io.IOException;
+> > import java.net.InetSocketAddress;
+> > import java.nio.ByteBuffer;
+> > import java.nio.channels.*;
+> > import java.util.Iterator;
+> > 
+> > public class GroupChatServer {
+> >     //定义属性
+> >     private Selector selector;
+> >     private ServerSocketChannel listenChannel;
+> >     private static final int PORT = 6667;
+> >     //构造器
+> >     //初始化工作
+> >     public GroupChatServer() {
+> >         try {
+> >             //得到选择器
+> >             selector = Selector.open();
+> >             //ServerSocketChannel
+> >             listenChannel =  ServerSocketChannel.open();
+> >             //绑定端口
+> >             listenChannel.socket().bind(new InetSocketAddress(PORT));
+> >             //设置非阻塞模式
+> >             listenChannel.configureBlocking(false);
+> >             //将该listenChannel 注册到selector
+> >             listenChannel.register(selector, SelectionKey.OP_ACCEPT);
+> >         }catch (IOException e) {
+> >             e.printStackTrace();
+> >         }
+> > 
+> >     }
+> > 
+> >     //监听
+> >     public void listen() {
+> >         System.out.println("监听线程: " + Thread.currentThread().getName());
+> >         try {
+> >             //循环处理
+> >             while (true) {
+> >                 int count = selector.select();
+> >                 if(count > 0) {//有事件处理
+> >                     //遍历得到selectionKey 集合
+> >                     Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
+> >                     while (iterator.hasNext()) {
+> >                         //取出selectionkey
+> >                         SelectionKey key = iterator.next();
+> > 
+> >                         //监听到accept
+> >                         if(key.isAcceptable()) {
+> >                             SocketChannel sc = listenChannel.accept();
+> >                             sc.configureBlocking(false);
+> >                             //将该 sc 注册到seletor
+> >                             sc.register(selector, SelectionKey.OP_READ);
+> > 
+> >                             //提示
+> >                             System.out.println(sc.getRemoteAddress() + " 上线 ");
+> > 
+> >                         }
+> >                         if(key.isReadable()) { //通道发送read事件，即通道是可读的状态
+> >                             //处理读 (专门写方法..)
+> > 
+> >                             readData(key);
+> > 
+> >                         }
+> >                         //当前的key 删除，防止重复处理
+> >                         iterator.remove();
+> >                     }
+> > 
+> >                 } else {
+> >                     System.out.println("等待....");
+> >                 }
+> >             }
+> >         }catch (Exception e) {
+> >             e.printStackTrace();
+> > 
+> >         }finally {
+> >             //发生异常处理....
+> >         }
+> >     }
+> > 
+> >     //读取客户端消息
+> >     private void readData(SelectionKey key) {
+> >         //取到关联的channle
+> >         SocketChannel channel = null;
+> >         try {
+> >             //得到channel
+> >             channel = (SocketChannel) key.channel();
+> >             //创建buffer
+> >             ByteBuffer buffer = ByteBuffer.allocate(1024);
+> >             int count = channel.read(buffer);
+> >             //根据count的值做处理
+> >             if(count > 0) {
+> >                 //把缓存区的数据转成字符串
+> >                 String msg = new String(buffer.array());
+> >                 //输出该消息
+> >                 System.out.println("form 客户端: " + msg);
+> >                 //向其它的客户端转发消息(去掉自己), 专门写一个方法来处理
+> >                 sendInfoToOtherClients(msg, channel);
+> >             }
+> >         }catch (IOException e) {
+> >             try {
+> >                 System.out.println(channel.getRemoteAddress() + " 离线了..");
+> >                 //取消注册
+> >                 key.cancel();
+> >                 //关闭通道
+> >                 channel.close();
+> >             }catch (IOException e2) {
+> >                 e2.printStackTrace();;
+> >             }
+> >         }
+> >     }
+> >     //转发消息给其它客户(通道)
+> >     private void sendInfoToOtherClients(String msg, SocketChannel self ) throws  IOException{
+> > 
+> >         System.out.println("服务器转发消息中...");
+> >         System.out.println("服务器转发数据给客户端线程: " + Thread.currentThread().getName());
+> >         //遍历 所有注册到selector 上的 SocketChannel,并排除 self
+> >         for(SelectionKey key: selector.keys()) {
+> > 
+> >             //通过 key  取出对应的 SocketChannel
+> >             Channel targetChannel = key.channel();
+> > 
+> >             //排除自己
+> >             if(targetChannel instanceof  SocketChannel && targetChannel != self) {
+> > 
+> >                 //转型
+> >                 SocketChannel dest = (SocketChannel)targetChannel;
+> >                 //将msg 存储到buffer
+> >                 ByteBuffer buffer = ByteBuffer.wrap(msg.getBytes());
+> >                 //将buffer 的数据写入 通道
+> >                 dest.write(buffer);
+> >             }
+> >         }
+> > 
+> >     }
+> >     public static void main(String[] args) {
+> >         //创建服务器对象
+> >         GroupChatServer groupChatServer = new GroupChatServer();
+> >         groupChatServer.listen();
+> >     }
+> > }
+> > 
+> > //可以写一个Handler
+> > class MyHandler {
+> >     public void readData() {
+> >     }
+> >     public void sendInfoToOtherClients(){
+> > 
+> >     }
+> > }
+> > 
+> > 
+> > ```
+> >
+> > 
+>
+> Client端
+>
+> > ```java
+> > import java.io.IOException;
+> > import java.net.InetSocketAddress;
+> > import java.nio.ByteBuffer;
+> > import java.nio.channels.SelectionKey;
+> > import java.nio.channels.Selector;
+> > import java.nio.channels.SocketChannel;
+> > import java.util.Iterator;
+> > import java.util.Scanner;
+> > 
+> > public class GroupChatClient {
+> >     //定义相关的属性
+> >     private final String HOST = "127.0.0.1"; // 服务器的ip
+> >     private final int PORT = 6667; //服务器端口
+> >     private Selector selector;
+> >     private SocketChannel socketChannel;
+> >     private String username;
+> > 
+> >     //构造器, 完成初始化工作
+> >     public GroupChatClient() throws IOException {
+> >         selector = Selector.open();
+> >         //连接服务器
+> >         socketChannel = socketChannel.open(new InetSocketAddress("127.0.0.1", PORT));
+> >         //设置非阻塞
+> >         socketChannel.configureBlocking(false);
+> >         //将channel 注册到selector
+> >         socketChannel.register(selector, SelectionKey.OP_READ);
+> >         //得到username
+> >         username = socketChannel.getLocalAddress().toString().substring(1);
+> >         System.out.println(username + " is ok...");
+> >     }
+> >     //向服务器发送消息
+> >     public void sendInfo(String info) {
+> >         info = username + " 说：" + info;
+> >         try {
+> >             socketChannel.write(ByteBuffer.wrap(info.getBytes()));
+> >         }catch (IOException e) {
+> >             e.printStackTrace();
+> >         }
+> >     }
+> >     //读取从服务器端回复的消息
+> >     public void readInfo() {
+> >         try {
+> >             int readChannels = selector.select();
+> >             if(readChannels > 0) {//有可以用的通道
+> >                 Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
+> >                 while (iterator.hasNext()) {
+> >                     SelectionKey key = iterator.next();
+> >                     if(key.isReadable()) {
+> >                         //得到相关的通道
+> >                         SocketChannel sc = (SocketChannel) key.channel();
+> >                         //得到一个Buffer
+> >                         ByteBuffer buffer = ByteBuffer.allocate(1024);
+> >                         //读取
+> >                         sc.read(buffer);
+> >                         //把读到的缓冲区的数据转成字符串
+> >                         String msg = new String(buffer.array());
+> >                         System.out.println(msg.trim());
+> >                     }
+> >                 }
+> >                 iterator.remove(); //删除当前的selectionKey, 防止重复操作
+> >             } else {
+> >                 //System.out.println("没有可以用的通道...");
+> >             }
+> >         }catch (Exception e) {
+> >             e.printStackTrace();
+> >         }
+> >     }
+> >     public static void main(String[] args) throws Exception {
+> >         //启动我们客户端
+> >         GroupChatClient chatClient = new GroupChatClient();
+> >         //启动一个线程, 每个3秒，读取从服务器发送数据
+> >         new Thread() {
+> >             public void run() {
+> >                 while (true) {
+> >                     chatClient.readInfo();
+> >                     try {
+> >                         Thread.currentThread().sleep(3000);
+> >                     }catch (InterruptedException e) {
+> >                         e.printStackTrace();
+> >                     }
+> >                 }
+> >             }
+> >         }.start();
+> >         //发送数据给服务器端
+> >         Scanner scanner = new Scanner(System.in);
+> >         while (scanner.hasNextLine()) {
+> >             String s = scanner.nextLine();
+> >             chatClient.sendInfo(s);
+> >         }
+> >     }
+> > }
+> > 
+> > ```
+
+------
+
+
+
+## NIO与零拷贝
+
+> ​		我们说零拷贝，是从操作系统的角度来说的。传统文件copy，需要经过 **4 次用户态与内核态的上下文切换** 以及**4 次数据拷贝**，其中两次是 DMA 的拷贝，另外两次则是通过 CPU 拷贝。上下文切换到成本并不小，一次切换需要耗时几十纳秒到几微秒，虽然时间看上去很短，但是在高并发的场景下，这类时间容易被累积和放大，从而影响系统的性能。文件传输的过程，我们只是搬运一份数据，结果却搬运了 4 次，过多的数据拷贝无疑会消耗 CPU 资源，大大降低了系统性能。为了提高文件传输的性能，就需要减少上下文的切换和文件copy的次数。
+>
+> **因为我们没有在内存层面去拷贝数据，也就是说全程没有通过 CPU 来搬运数据，所有的数据都是通过 DMA 来进行传输的。**零拷贝技术的文件传输方式相比传统文件传输的方式，减少了 2 次上下文切换和数据拷贝次数，**只需要 2 次上下文切换和数据拷贝次数，就可以完成文件的传输，而且 2 次的数据拷贝过程，都不需要通过 CPU，2 次都是由 DMA 来搬运。，**零拷贝技术可以把文件传输的性能提高至少一倍以上**。
+>
+> ```
+> 什么是 DMA(（Direct Memory Access）) 技术？
+> 简单理解就是，在进行 I/O 设备和内存的数据传输的时候，数据搬运的工作全部交给 DMA 控制器，而 CPU 不再参与任何与数据搬运相关的事情，
+> 这样 CPU 就可以去处理别的事务。
+> ```
+
