@@ -336,7 +336,7 @@ public void modifyNonHeap() throws IOException {
 
 
 
-## Selector
+Selector
 
 > ![image-20210725211059362](../images/image-20210725211059362.png)
 >
@@ -763,15 +763,152 @@ public void modifyNonHeap() throws IOException {
 
 
 
-## NIO与零拷贝
+### NIO与零拷贝
 
 > ​		我们说零拷贝，是从操作系统的角度来说的。传统文件copy，需要经过 **4 次用户态与内核态的上下文切换** 以及**4 次数据拷贝**，其中两次是 DMA 的拷贝，另外两次则是通过 CPU 拷贝。上下文切换到成本并不小，一次切换需要耗时几十纳秒到几微秒，虽然时间看上去很短，但是在高并发的场景下，这类时间容易被累积和放大，从而影响系统的性能。文件传输的过程，我们只是搬运一份数据，结果却搬运了 4 次，过多的数据拷贝无疑会消耗 CPU 资源，大大降低了系统性能。为了提高文件传输的性能，就需要减少上下文的切换和文件copy的次数。
 >
-> **因为我们没有在内存层面去拷贝数据，也就是说全程没有通过 CPU 来搬运数据，所有的数据都是通过 DMA 来进行传输的。**零拷贝技术的文件传输方式相比传统文件传输的方式，减少了 2 次上下文切换和数据拷贝次数，**只需要 2 次上下文切换和数据拷贝次数，就可以完成文件的传输，而且 2 次的数据拷贝过程，都不需要通过 CPU，2 次都是由 DMA 来搬运。，**零拷贝技术可以把文件传输的性能提高至少一倍以上**。
+> ​	**因为我们没有在内存层面去拷贝数据，也就是说全程没有通过 CPU 来搬运数据，所有的数据都是通过 DMA 来进行传输的。**零拷贝技术的文件传输方式相比传统文件传输的方式，减少了 2 次上下文切换和数据拷贝次数，**只需要 2 次上下文切换和数据拷贝次数，就可以完成文件的传输，而且 2 次的数据拷贝过程，都不需要通过 CPU，2 次都是由 DMA 来搬运。，**零拷贝技术可以把文件传输的性能提高至少一倍以上**。
 >
 > ```
 > 什么是 DMA(（Direct Memory Access）) 技术？
 > 简单理解就是，在进行 I/O 设备和内存的数据传输的时候，数据搬运的工作全部交给 DMA 控制器，而 CPU 不再参与任何与数据搬运相关的事情，
 > 这样 CPU 就可以去处理别的事务。
 > ```
+>
+> 首先看下传统BIO模型下文件传输的案例：
+>
+> > **OldServer**
+> >
+> > > ```java
+> > > import java.io.DataInputStream;
+> > > import java.net.ServerSocket;
+> > > import java.net.Socket;
+> > > //java IO 的服务器
+> > > public class OldIOServer {
+> > >     public static void main(String[] args) throws Exception {
+> > >         ServerSocket serverSocket = new ServerSocket(7001);
+> > >         while (true) {
+> > >             Socket socket = serverSocket.accept();
+> > >             DataInputStream dataInputStream = new DataInputStream(socket.getInputStream());
+> > >             try {
+> > >                 byte[] byteArray = new byte[4096];
+> > >                 while (true) {
+> > >                     int readCount = dataInputStream.read(byteArray, 0, byteArray.length);
+> > > 
+> > >                     if (-1 == readCount) {
+> > >                         break;
+> > >                     }
+> > >                 }
+> > >             } catch (Exception ex) {
+> > >                 ex.printStackTrace();
+> > >             }
+> > >         }
+> > >     }
+> > > }
+> > > ```
+> >
+> > **OlderClient**
+> >
+> > > ```java
+> > > import java.io.DataOutputStream;
+> > > import java.io.FileInputStream;
+> > > import java.io.InputStream;
+> > > import java.net.Socket;
+> > > 
+> > > public class OldIOClient {
+> > >     public static void main(String[] args) throws Exception {
+> > >         Socket socket = new Socket("localhost", 7001);
+> > >         String fileName = "protoc-3.6.1-win32.zip";
+> > >         InputStream inputStream = new FileInputStream(fileName);
+> > >         DataOutputStream dataOutputStream = new DataOutputStream(socket.getOutputStream());
+> > >         byte[] buffer = new byte[4096];
+> > >         long readCount;
+> > >         long total = 0;
+> > >         long startTime = System.currentTimeMillis();
+> > >         while ((readCount = inputStream.read(buffer)) >= 0) {
+> > >             total += readCount;
+> > >             dataOutputStream.write(buffer);
+> > >         }
+> > >         System.out.println("发送总字节数： " + total + ", 耗时： " + (System.currentTimeMillis() - startTime));
+> > >         dataOutputStream.close();
+> > >         socket.close();
+> > >         inputStream.close();
+> > >     }
+> > > }
+> > > ```
+> >
+> > **NewIOServer**
+> >
+> > >```java
+> > >import java.net.InetSocketAddress;
+> > >import java.net.ServerSocket;
+> > >import java.nio.ByteBuffer;
+> > >import java.nio.channels.ServerSocketChannel;
+> > >import java.nio.channels.SocketChannel;
+> > >
+> > >//服务器
+> > >public class NewIOServer {
+> > >    public static void main(String[] args) throws Exception {
+> > >        InetSocketAddress address = new InetSocketAddress(7001);
+> > >        ServerSocketChannel serverSocketChannel = ServerSocketChannel.open();
+> > >        ServerSocket serverSocket = serverSocketChannel.socket();
+> > >        serverSocket.bind(address);
+> > >        //创建buffer
+> > >        ByteBuffer byteBuffer = ByteBuffer.allocate(4096);
+> > >        while (true) {
+> > >            SocketChannel socketChannel = serverSocketChannel.accept();
+> > >            int readcount = 0;
+> > >            while (-1 != readcount) {
+> > >                try {
+> > >                    readcount = socketChannel.read(byteBuffer);
+> > >                }catch (Exception ex) {
+> > >                    break;
+> > >                }
+> > >                byteBuffer.rewind(); //倒带 position = 0 mark 作废
+> > >            }
+> > >        }
+> > >    }
+> > >}
+> > >
+> > >```
+> > >
+> > >**NewIOClient**
+> > >
+> > >> ```java
+> > >> import java.io.FileInputStream;
+> > >> import java.net.InetSocketAddress;
+> > >> import java.nio.channels.FileChannel;
+> > >> import java.nio.channels.SocketChannel;
+> > >> > public class NewIOClient {
+> > >>  public static void main(String[] args) throws Exception {
+> > >>      SocketChannel socketChannel = SocketChannel.open();
+> > >>      socketChannel.connect(new InetSocketAddress("localhost", 7001));
+> > >>      String filename = "protoc-3.6.1-win32.zip";
+> > >>      //得到一个文件channel
+> > >>      FileChannel fileChannel = new FileInputStream(filename).getChannel();
+> > >>      //准备发送
+> > >>      long startTime = System.currentTimeMillis();
+> > >>      //在linux下一个transferTo 方法就可以完成传输
+> > >>      //在windows 下 一次调用 transferTo 只能发送8m , 就需要分段传输文件, 而且要主要
+> > >>      //传输时的位置 =》 课后思考...
+> > >>      //transferTo 底层使用到零拷贝
+> > >>      long transferCount = fileChannel.transferTo(0, fileChannel.size(), socketChannel);
+> > >>      System.out.println("发送的总的字节数 =" + transferCount + " 耗时:" + (System.currentTimeMillis() - startTime));
+> > >>      //关闭
+> > >>      fileChannel.close();
+> > >> 
+> > >> > 	}
+> > >> }
+> > >> d
+> > >> > ```
+> > >
 
+------
+
+## Netty
+
+### 原生NIO存在哪些问题呢？
+
+> :one:NIO的类库和API相对来说比较复杂，繁杂。需要熟练掌握 `Selector`、`ServerSocketChannel `、 `SocketChannel`、 `ByteBuffer`等。
+>
+>  
