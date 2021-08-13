@@ -848,26 +848,26 @@ Selector
 > > >
 > > >//服务器
 > > >public class NewIOServer {
-> > >    public static void main(String[] args) throws Exception {
-> > >        InetSocketAddress address = new InetSocketAddress(7001);
-> > >        ServerSocketChannel serverSocketChannel = ServerSocketChannel.open();
-> > >        ServerSocket serverSocket = serverSocketChannel.socket();
-> > >        serverSocket.bind(address);
-> > >        //创建buffer
-> > >        ByteBuffer byteBuffer = ByteBuffer.allocate(4096);
-> > >        while (true) {
-> > >            SocketChannel socketChannel = serverSocketChannel.accept();
-> > >            int readcount = 0;
-> > >            while (-1 != readcount) {
-> > >                try {
-> > >                    readcount = socketChannel.read(byteBuffer);
-> > >                }catch (Exception ex) {
-> > >                    break;
-> > >                }
-> > >                byteBuffer.rewind(); //倒带 position = 0 mark 作废
-> > >            }
-> > >        }
-> > >    }
+> > >public static void main(String[] args) throws Exception {
+> > >   InetSocketAddress address = new InetSocketAddress(7001);
+> > >   ServerSocketChannel serverSocketChannel = ServerSocketChannel.open();
+> > >   ServerSocket serverSocket = serverSocketChannel.socket();
+> > >   serverSocket.bind(address);
+> > >   //创建buffer
+> > >   ByteBuffer byteBuffer = ByteBuffer.allocate(4096);
+> > >   while (true) {
+> > >       SocketChannel socketChannel = serverSocketChannel.accept();
+> > >       int readcount = 0;
+> > >       while (-1 != readcount) {
+> > >           try {
+> > >               readcount = socketChannel.read(byteBuffer);
+> > >           }catch (Exception ex) {
+> > >               break;
+> > >           }
+> > >           byteBuffer.rewind(); //倒带 position = 0 mark 作废
+> > >       }
+> > >   }
+> > >}
 > > >}
 > > >
 > > >```
@@ -896,11 +896,15 @@ Selector
 > > >>      System.out.println("发送的总的字节数 =" + transferCount + " 耗时:" + (System.currentTimeMillis() - startTime));
 > > >>      //关闭
 > > >>      fileChannel.close();
-> > >> 
+> > >> ```
+> > >
+> > >> > 		}
 > > >> > 	}
-> > >> }
-> > >> d
-> > >> > ```
+> > >> > 	d
+> > >> >
+> > >> > 	```
+> > >> > 	
+> > >> > 	```
 > > >
 
 ------
@@ -911,4 +915,103 @@ Selector
 
 > :one:NIO的类库和API相对来说比较复杂，繁杂。需要熟练掌握 `Selector`、`ServerSocketChannel `、 `SocketChannel`、 `ByteBuffer`等。
 >
->  
+> :two:NIO 编程涉及到 Reactor 模式，你必须对多线程和网络编程非常熟悉，才能编写出高质量的 NIO 程序。
+>
+> :three:开发工作量和难度都非常大：例如客户端面临断连重连、网络闪断、半包读写、失败缓存、网络拥塞和异常流的处理等等。
+>
+> :four:JDK NIO 的 Bug： Epoll Bug，它会导致 Selector 空轮询，最终导致 CPU 100%。直到 JDK 1.7 版本该问题仍旧存在，没有被根本解决。
+
+### 聊一聊Netty框架
+
+> :one:Netty 提供异步的、基于事件驱动的网络应用程序框架，用以快速开发高性能、高可靠性的网络 IO 程序
+>
+> :two:Netty 可以帮助你快速、简单的开发出一个网络应用，相当于简化和流程化了 NIO 的开发过程
+>
+> :three:Netty 是目前最流行的 NIO 框架,知名的 Elasticsearch 、Dubbo 框架内部都采用了 Netty。
+
+### Netty版本说明
+
+> netty版本分为  netty3.x  和  netty4.x、netty5.x
+>
+> 因为Netty5出现重大bug，已经被官网废弃了，目前推荐使用的是Netty4.x的稳定版本
+
+### 线程模型介绍
+
+>  :one:传统阻塞IO服务模型
+>
+> :two:reactor模式
+>
+> > 根据Reactor的数量和处理资源线程池的数量，可以再细分成下面3类：
+> >
+> > 1、单Reactor单线程
+> >
+> > 2、单Reactor多线程
+> >
+> > 3、主从Reactor多线程
+> >
+> > **Netty线程模式基于主从Reactor多线程模型做了一定的改进，其中主从Reactor多线程模型有多个Reactor**
+
+### 传统阻塞IO模型
+
+> 每个连接都需要独立的线程完成数据的输入，业务处理，数据返回。当并发量很大就会创建大量的线程，占用很大的资源。连接建立后，如果当前线程暂时没有数据可读，该线程会阻塞在read操作，造成线程资源的浪费。
+
+### Reactor模式
+
+> 基于IO复用模型，多个连接复用一个阻塞对象，应用程序只需要在一个阻塞对象等待。当某个连接有新的数据可以处理时，操作系统通知应用程序，线程从阻塞状态返回，开始处理业务。
+>
+> 基于线程池，复用线程资源。
+
+### Reactor模式图解
+
+![image-20210809153520418](../images/image-20210809153520418.png)
+
+
+
+![image-20210809153534132](../images/image-20210809153534132.png)
+
+
+
+![image-20210809153555843](../images/image-20210809153555843.png)
+
+
+
+### Netty模型简单版本
+
+![image-20210809185210208](../images/image-20210809185210208.png)
+
+### Netty模型进阶版
+
+![image-20210809185510052](../images/image-20210809185510052.png)
+
+
+
+Netty模型进阶图二
+
+![image-20210809190602378](../images/image-20210809190602378.png)
+
+**1、Netty抽象出两组线程池Boss Group和WorkGroup，BossGroup负责接受客户端的连接，WorkGroup负责网络的读写**
+
+**2、BossGroup和WorkGroup类型都是NioEventLoopGroup**
+
+**3、NioEventLoopGroup相当于一个事件循环组，这个组含有多个事件循环线程，每一个使劲按循环线程是NioEventLoop**
+
+**4、每个NioEventLoop都有个selector，用于监听注册在其上的SocketChannel的网络通信**
+
+**5、每个Boss EventLoop线程内部循环执行的步骤有3步**
+
+​      5.1、处理accept事件，与client建立连接，生成NioSocketChannel
+
+​      5.2、将NioSocketChannel注册到worker NIOEventLoop上的selector
+
+​      5.3、处理任务队列的任务，即runAllTasks
+
+**6、每个worker NIOEventLoop线程循环执行的步骤**
+
+​		6.1、轮询注册到自己selector上的所有NIOSocketChannel的read、writer事件
+
+​       6.2、处理IO事件，即read、writer事件，在对应的NIOSocketChannel处理业务
+
+​		runAlltasks处理任务队列TaskQueue的任务，一些耗时的业务处理一般可以放在TaskQueue中慢慢处理，这样不影响数据在pipeline中的流动处理
+
+**7、每个worker NIOEventLoop处理NIOSocketChannel业务时，会使用pipeline，pipeline中维护了很多handler（处理器）来处理channel中的数据**
+

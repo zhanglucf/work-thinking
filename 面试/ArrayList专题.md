@@ -51,7 +51,7 @@
 
 ```java
     private void ensureCapacityInternal(int minCapacity) {
-        ////第一次添加元素时，minCapacity = size + 1 = 0 + 1 = 2
+        ////第一次添加元素时，minCapacity = size + 1 = 0 + 1 = 1
         ensureExplicitCapacity(calculateCapacity(elementData, minCapacity));
     }
 ```
@@ -60,7 +60,7 @@
 
 ```java
     private void ensureCapacityInternal(int minCapacity) {
-        ////第一次添加元素时，minCapacity = size + 1 = 0 + 1 = 2
+        ////第一次添加元素时，minCapacity = size + 1 = 0 + 1 = 1
         ensureExplicitCapacity(calculateCapacity(elementData, minCapacity));
     }
 ```
